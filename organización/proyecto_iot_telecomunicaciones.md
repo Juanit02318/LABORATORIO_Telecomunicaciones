@@ -11,7 +11,6 @@
 > <img width="250" height="307" alt="image" src="https://github.com/user-attachments/assets/51856c7b-7124-4fa4-a163-0e5dd3ff669d" />
 
 
-
 **Curso: **
 Laboratorio de Software en Telecomunicaciones
 
