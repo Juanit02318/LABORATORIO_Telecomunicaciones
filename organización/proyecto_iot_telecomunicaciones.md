@@ -258,12 +258,15 @@ Posteriormente, el ESP32 utiliza una conexión Wi-Fi para transmitir la telemetr
 | Aplicación       | Visualización de datos y alertas para personal médico.                         |
 
 **Diagrama de contexto**
+
 <img width="486" height="80" alt="image" src="https://github.com/user-attachments/assets/f7591063-4316-4b87-a817-b0de60ac543e" />
 
 **Diagrama de componentes**
+
 <img width="485" height="72" alt="image" src="https://github.com/user-attachments/assets/d65c39a7-52d3-48bc-8db6-88f0e52d8485" />
 
 **Diagrama de secuencia**
+
 <img width="492" height="116" alt="image" src="https://github.com/user-attachments/assets/0b3ad3c1-4a10-4415-9055-08eff523f82d" />
 
 
