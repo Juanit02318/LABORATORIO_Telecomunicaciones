@@ -2,19 +2,19 @@
 #include <HTTPClient.h>
 #include <esp_system.h>
 
-const char* WIFI_SSID = "ELSA_PC_2.4G";
-const char* WIFI_PASSWORD = "BADADITA";
-const char* URL_HTTP = "http://192.168.0.206:5000/muestras";
+const char* WIFI_SSID = "S24 de Pedro";
+const char* WIFI_PASSWORD = "diqueerespobre";
+const char* URL_HTTP = "http://10.177.136.156:5000/muestras";
 
 const int PIN_MQ135 = 34;
 const int LECTURAS = 20;
-const unsigned long INTERVALO = 5000;
-const unsigned long REINTENTO = 3000;
+const unsigned long INTERVALO = 5000; // Espera tras confirmar antes de otra lectura
+const unsigned long INTERVALO_ENVIO = 10000; // Entre inicios de envios, incluidos reintentos
+const int TIMEOUT_HTTP_MS = 5000; // Espera de respuesta, independiente del intervalo de envio
 unsigned long ultimaConfirmacion = 0;
-unsigned long ultimoIntento = 0;
+unsigned long ultimoInicioEnvio = 0;
 unsigned long idMuestra = 0;
 bool pendiente = false;
-bool intentarAhora = false;
 bool wifiAvisado = false;
 char sesion[9];
 char jsonPendiente[384];
@@ -28,7 +28,8 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.println("HTTP con reintentos: una muestra pendiente en RAM.");
+  if (!WiFi.setSleep(false)) Serial.println("No se pudo desactivar el ahorro WiFi.");
+  Serial.println("HTTP: envios separados por 10 s, incluidos reintentos. Nueva lectura 5 s tras confirmar.");
 }
 
 void tomarMuestra() {
@@ -50,7 +51,6 @@ void tomarMuestra() {
     "\"tiempo_ms\":%lu}",
     sesion, idMuestra, adc, voltajeGPIO, voltajeAO, millis());
   pendiente = true;
-  intentarAhora = true;
   Serial.println(jsonPendiente);
 }
 
@@ -75,40 +75,41 @@ void loop() {
     }
     tomarMuestra();
   }
-  if (!intentarAhora && millis() - ultimoIntento < REINTENTO) {
+  if (millis() - ultimoInicioEnvio < INTERVALO_ENVIO) {
     delay(1);
     return;
   }
-  intentarAhora = false;
+  ultimoInicioEnvio = millis();
   WiFiClient cliente;
   HTTPClient http;
   if (!http.begin(cliente, URL_HTTP)) {
     Serial.println("URL invalida: revisar URL_HTTP.");
-    ultimoIntento = millis();
     return;
   }
   http.setReuse(false);
-  http.setConnectTimeout(3000);
-  http.setTimeout(5000);
+  http.setConnectTimeout(6000);
+  http.setTimeout(TIMEOUT_HTTP_MS);
   http.addHeader("Content-Type", "application/json");
-  Serial.printf("Enviando muestra %lu, sesion %s...\n", idMuestra, sesion);
+  Serial.printf("Enviando muestra %lu, sesion %s | RSSI=%ld dBm\n", idMuestra, sesion, (long)WiFi.RSSI());
+  unsigned long inicioPeticion = millis();
   int codigo = http.POST(String(jsonPendiente));
   if (codigo > 0) {
     Serial.printf("HTTP: %d\n", codigo);
-    Serial.println(http.getString());
+    String respuesta = http.getString();
+    Serial.println(respuesta);
   } else {
     Serial.print("Error HTTP: ");
     Serial.println(HTTPClient::errorToString(codigo));
   }
+  Serial.printf("Duracion peticion y respuesta: %lu ms\n", millis() - inicioPeticion);
   http.end();
-  ultimoIntento = millis();
   // Este receptor devuelve 201 tras guardar o 200 para un duplicado guardado.
   if (codigo == 201 || codigo == 200) {
     Serial.printf("CONFIRMADA muestra %lu.\n", idMuestra);
     pendiente = false;
     ultimaConfirmacion = millis();
   } else {
-    Serial.printf("Pendiente %lu: se reenviara el MISMO JSON en 3 s.\n", idMuestra);
+    Serial.printf("Pendiente %lu: lecturas pausadas; se reenviara el MISMO JSON en el siguiente turno de envio.\n", idMuestra);
     if (codigo == 400 || codigo == 404 || codigo == 415) {
       Serial.println("Revisar respuesta del servidor, ruta y formato JSON.");
     }
