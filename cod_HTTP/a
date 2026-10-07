@@ -1,1 +1,116 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <esp_system.h>
 
+const char* WIFI_SSID = "ELSA_PC_2.4G";
+const char* WIFI_PASSWORD = "BADADITA";
+const char* URL_HTTP = "http://192.168.0.206:5000/muestras";
+
+const int PIN_MQ135 = 34;
+const int LECTURAS = 20;
+const unsigned long INTERVALO = 5000;
+const unsigned long REINTENTO = 3000;
+unsigned long ultimaConfirmacion = 0;
+unsigned long ultimoIntento = 0;
+unsigned long idMuestra = 0;
+bool pendiente = false;
+bool intentarAhora = false;
+bool wifiAvisado = false;
+char sesion[9];
+char jsonPendiente[384];
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(PIN_MQ135, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(PIN_MQ135, ADC_11db);
+  snprintf(sesion, sizeof(sesion), "%08lx", (unsigned long)esp_random());
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.println("HTTP con reintentos: una muestra pendiente en RAM.");
+}
+
+void tomarMuestra() {
+  uint32_t sumaADC = 0;
+  uint32_t sumaMV = 0;
+  for (int i = 0; i < LECTURAS; i++) {
+    sumaADC += analogRead(PIN_MQ135);
+    sumaMV += analogReadMilliVolts(PIN_MQ135);
+    delay(5);
+  }
+  int adc = (sumaADC + LECTURAS / 2) / LECTURAS;
+  float voltajeGPIO = sumaMV / (LECTURAS * 1000.0f);
+  float voltajeAO = voltajeGPIO * 2.0f; // R1 = R2 = 10 kohm
+  idMuestra++;
+  snprintf(jsonPendiente, sizeof(jsonPendiente),
+    "{\"dispositivo\":\"esp32_01\",\"sesion\":\"%s\","
+    "\"id_muestra\":%lu,\"sensor\":\"MQ135\",\"origen\":\"sensor\","
+    "\"adc\":%d,\"voltaje_gpio\":%.3f,\"voltaje_ao_estimado\":%.3f,"
+    "\"tiempo_ms\":%lu}",
+    sesion, idMuestra, adc, voltajeGPIO, voltajeAO, millis());
+  pendiente = true;
+  intentarAhora = true;
+  Serial.println(jsonPendiente);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (!wifiAvisado) {
+      Serial.println("Sin WiFi: esperando reconexion; pendiente conservada.");
+      wifiAvisado = true;
+    }
+    delay(100);
+    return;
+  }
+  if (wifiAvisado) {
+    Serial.print("WiFi conectado. IP ESP32: ");
+    Serial.println(WiFi.localIP());
+    wifiAvisado = false;
+  }
+  if (!pendiente) {
+    if (millis() - ultimaConfirmacion < INTERVALO) {
+      delay(1);
+      return;
+    }
+    tomarMuestra();
+  }
+  if (!intentarAhora && millis() - ultimoIntento < REINTENTO) {
+    delay(1);
+    return;
+  }
+  intentarAhora = false;
+  WiFiClient cliente;
+  HTTPClient http;
+  if (!http.begin(cliente, URL_HTTP)) {
+    Serial.println("URL invalida: revisar URL_HTTP.");
+    ultimoIntento = millis();
+    return;
+  }
+  http.setReuse(false);
+  http.setConnectTimeout(3000);
+  http.setTimeout(5000);
+  http.addHeader("Content-Type", "application/json");
+  Serial.printf("Enviando muestra %lu, sesion %s...\n", idMuestra, sesion);
+  int codigo = http.POST(String(jsonPendiente));
+  if (codigo > 0) {
+    Serial.printf("HTTP: %d\n", codigo);
+    Serial.println(http.getString());
+  } else {
+    Serial.print("Error HTTP: ");
+    Serial.println(HTTPClient::errorToString(codigo));
+  }
+  http.end();
+  ultimoIntento = millis();
+  // Este receptor devuelve 201 tras guardar o 200 para un duplicado guardado.
+  if (codigo == 201 || codigo == 200) {
+    Serial.printf("CONFIRMADA muestra %lu.\n", idMuestra);
+    pendiente = false;
+    ultimaConfirmacion = millis();
+  } else {
+    Serial.printf("Pendiente %lu: se reenviara el MISMO JSON en 3 s.\n", idMuestra);
+    if (codigo == 400 || codigo == 404 || codigo == 415) {
+      Serial.println("Revisar respuesta del servidor, ruta y formato JSON.");
+    }
+  }
+}
