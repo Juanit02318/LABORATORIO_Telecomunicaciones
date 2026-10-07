@@ -4,7 +4,9 @@
 > Sistema IoT end-to-end para el monitoreo de frecuencia cardíaca (FC) y saturación de oxígeno (SpO₂) mediante ESP32, MAX30102, Wi-Fi, HTTP y MQTT.
 
 **UNIVERSIDAD NACIONAL DE SAN AGUSTÍN DE AREQUIPA**
+
 **FACULTAD DE INGENIERIA DE PRODUCCION Y SERVICIOS**
+
 **ESCUELA DE PROFESIONAL DE INGENIERÍA EN TELECOMUNICACIONES**
 
 
